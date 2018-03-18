@@ -161,6 +161,13 @@ def initArgumentParser():
             help='Tweak OS/2 table according to the font weight. This may be needed for some '
                  'buggy FontForge versions which do not do this by themselves.'
     )
+    argParser.add_argument(
+            '-p',
+            '--pixelize',
+            action='store_true',
+            help='Use freetype to generate a right-angled outline font matching the original '
+                 'bitmap, instead of autotracing. Overrides autotrace-related args.'
+            )
 
     return argParser
 
@@ -254,12 +261,66 @@ if args.os2_table_tweaks:
     baseFont.os2_stylemap |= styleMap
     baseFont.macstyle |= macStyle
 
-# AutoTrace all glyphs, add extrema and simplify.
-print('Processing glyphs...')
-baseFont.selection.all()
-baseFont.autoTrace()
-baseFont.addExtrema()
-baseFont.simplify()
+if args.pixelize:
+    import freetype
+    print('Pixelizing glyphs...')
+
+    ftFace = freetype.Face(args.bdf_file[0])
+    if not len(ftFace.available_sizes) > 0:
+        sys.exit("Font `%s' does not appear to be a bitmap font" % args.bdf_file[0])
+
+    # set up some metrics
+    # TODO: generalize this
+    ftSize = ftFace.available_sizes[0]
+    pixels = ftSize.height
+    emSize = ftSize.y_ppem
+
+    pixelSize = emSize / pixels
+    baseFont.em = emSize
+
+    for char, charIndex in ftFace.get_chars():
+        # index 0 is returned for the final, empty glyph
+        if charIndex == 0:
+            break
+
+        # print(chr(char))
+        ftFace.load_glyph(charIndex)
+        ftGlyph = ftFace.glyph
+
+        outline = baseFont[char]
+        # The fontforge glyphs seem to start as squares, we want them to be proportional
+        outline.width = ftGlyph.metrics.horiAdvance
+
+        pen = outline.glyphPen()
+
+        # TODO: account for wide glyphs -- 2 bytes per row
+        rowFormat = '08b'
+        for y_i, row in enumerate(ftGlyph.bitmap.buffer):
+            rowString = format(row, rowFormat)
+            for x_i, bit in enumerate(rowString):
+                if bit == '0':
+                    continue
+                x1 = (ftGlyph.bitmap_left + x_i) * pixelSize
+                x2 = x1 + pixelSize
+                y1 = (ftGlyph.bitmap_top - y_i) * pixelSize
+                y2 = y1 - pixelSize
+                pen.moveTo((x1, y1))
+                pen.lineTo((x2, y1))
+                pen.lineTo((x2, y2))
+                pen.lineTo((x1, y2))
+                pen.closePath()
+
+        # Merge adjacent pixel squares and reduce extra points
+        outline.removeOverlap()
+        outline.simplify()
+
+else:
+    # AutoTrace all glyphs, add extrema and simplify.
+    print('Processing glyphs...')
+    baseFont.selection.all()
+    baseFont.autoTrace()
+    baseFont.addExtrema()
+    baseFont.simplify()
 
 # Do we need to fixup the font for use with Visual Studio?
 # Taken from http://www.electronicdissonance.com/2010/01/raster-fonts-in-visual-studio-2010.html
