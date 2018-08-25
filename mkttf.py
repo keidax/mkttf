@@ -72,6 +72,9 @@ _weightToStyleMap = {
     # fsSelection: Set bit 6 ("REGULAR").
     'medium': (0x40, 0),
 
+    # fsSelection: Set bit 6 ("REGULAR").
+    'regular': (0x40, 0),
+
     # fsSelection: Set bits 0 ("ITALIC") and 9 ("OBLIQUE").
     # macStyle: Set bit 1 (which presumably also means "ITALIC").
     'italic': (0x201, 0x2),
