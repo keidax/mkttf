@@ -270,7 +270,6 @@ if args.pixelize:
         sys.exit("Font `%s' does not appear to be a bitmap font" % args.bdf_file[0])
 
     # set up some metrics
-    # TODO: generalize this
     ftSize = ftFace.available_sizes[0]
     pixels = ftSize.height
     emSize = ftSize.y_ppem
@@ -283,26 +282,26 @@ if args.pixelize:
         if charIndex == 0:
             break
 
-        # print(chr(char))
         ftFace.load_glyph(charIndex)
-        ftGlyph = ftFace.glyph
+        glyph = ftFace.glyph
+        bitmap = glyph.bitmap
 
         outline = baseFont[char]
-        # The fontforge glyphs seem to start as squares, we want them to be proportional
-        outline.width = ftGlyph.metrics.horiAdvance
-
         pen = outline.glyphPen()
 
-        # TODO: account for wide glyphs -- 2 bytes per row
-        rowFormat = '08b'
-        for y_i, row in enumerate(ftGlyph.bitmap.buffer):
-            rowString = format(row, rowFormat)
+        rowformat = '0%db' % (8 * bitmap.pitch)
+        for y_i in range(0, bitmap.rows):
+            row = 0
+            for byte_i in range(0, bitmap.pitch):
+                row = (row << 8) + bitmap.buffer[y_i * bitmap.pitch + byte_i]
+
+            rowString = format(row, rowformat)
             for x_i, bit in enumerate(rowString):
                 if bit == '0':
                     continue
-                x1 = (ftGlyph.bitmap_left + x_i) * pixelSize
+                x1 = (glyph.bitmap_left + x_i) * pixelSize
                 x2 = x1 + pixelSize
-                y1 = (ftGlyph.bitmap_top - y_i) * pixelSize
+                y1 = (glyph.bitmap_top - y_i) * pixelSize
                 y2 = y1 - pixelSize
                 pen.moveTo((x1, y1))
                 pen.lineTo((x2, y1))
@@ -310,9 +309,16 @@ if args.pixelize:
                 pen.lineTo((x1, y2))
                 pen.closePath()
 
-        # Merge adjacent pixel squares and reduce extra points
-        outline.removeOverlap()
-        outline.simplify()
+        # The fontforge glyphs seem to start as squares, we want them to be
+        # proportional. For some reason, this has to be set *after* we do the
+        # drawing.
+        outline.width = glyph.metrics.horiAdvance
+        outline.vwidth = glyph.metrics.vertAdvance
+
+    # Merge adjacent pixel squares and reduce extra points
+    baseFont.selection.all()
+    baseFont.removeOverlap()
+    baseFont.simplify()
 
 else:
     # AutoTrace all glyphs, add extrema and simplify.
